@@ -1,0 +1,109 @@
+# ── ETF Quant Strategy System — Global Configuration ──
+
+market: "A"                    # "A" = A-share (akshare), "US" = US market (yfinance)
+
+# Data pipeline
+data:
+  tickers:
+    A: ["510050","510300","510500","159915","588000","159845","515050","159995","159819","512720","516510","512880","512690","512010","516970","512660","515790","512800","515220","511010","511260","518880"]
+    US: ["SPY", "QQQ", "IWM", "XLK", "XLC", "XLV"]
+  start_date: "2023-01-01"
+  end_date: null               # null = today
+  cache_dir: "./data/cache"
+
+# LLM
+llm:
+  provider: "deepseek"          # deepseek | claude | openai
+  model: "deepseek-v4-pro"
+  max_tokens: 1024
+  temperature: 0.1
+  max_retries: 3
+  batch_size: 10
+  batch_delay_sec: 0.5
+
+# Factors
+factors:
+  momentum_windows: [5, 10, 21, 63]
+  volatility_window: 21
+  winsorize_bounds: [0.01, 0.99]
+  rsi_period: 14
+  atr_period: 14
+
+# XGBoost
+xgboost:
+  max_depth: 6
+  learning_rate: 0.05
+  n_estimators: 200
+  subsample: 0.8
+  colsample_bytree: 0.8
+  reg_alpha: 0.1
+  reg_lambda: 1.0
+  min_child_weight: 3
+  refit_frequency: "quarterly"
+
+# Risk control
+risk:
+  breach_polarity: -0.7
+  warn_polarity: -0.5
+  breach_confidence: 0.85
+  single_position_cap: 0.30
+  max_positions: 8
+
+# Backtest
+backtest:
+  initial_capital: 1_000_000.0
+  commission_rate: 0.0003      # 3 bps per side
+  slippage_bps: 1.0
+  rebalance_frequency: "monthly"
+  lookback_days: 252
+
+# Optuna
+optuna:
+  n_trials: 100
+  cv_folds: 5
+  oos_ratio: 0.2
+  study_name: "xgboost_etf_optimization"
+  storage: "sqlite:///optuna.db"
+
+# Recommendation pipeline
+recommendation:
+  model_path: "models/xgboost_etf"
+  top_n: 10
+  min_aum: 100000000
+  min_age_days: 180
+  max_per_sector: 3
+  default_weight_method: "score_weighted"
+
+# Prediction pipeline
+prediction:
+  model_path: "models/xgboost_reg"
+  horizons: [5, 21, 63]
+  retrain_frequency: "quarterly"
+
+# ── RL Portfolio Optimization ──
+rl:
+  enabled: false
+  model_path: "models/rl/ppo_portfolio"
+  total_timesteps: 200000
+  rebalance_freq: "monthly"
+  ppo:
+    learning_rate: 0.0003
+    n_steps: 2048
+    batch_size: 64
+    n_epochs: 10
+    gamma: 0.99
+    ent_coef: 0.01
+  reward:
+    sharpe_weight: 1.0
+    turnover_weight: 0.5
+    drawdown_weight: 1.0
+    diversification_weight: 0.2
+  walk_forward:
+    n_folds: 5
+    validation_months: 12
+
+# API
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4

@@ -1,0 +1,41 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual env ──
+.venv/
+venv/
+env/
+
+# ── Environment & secrets ──
+.env
+*.env.local
+*.env.prod
+
+# ── Data & databases ──
+data/
+*.db
+*.db-journal
+optuna.db
+
+# ── OS files ──
+.DS_Store
+Thumbs.db
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Misc ──
+node_modules/
+.pytest_cache/
+.claude/
+reports/
+docker-compose.override.yml

@@ -1,0 +1,45 @@
+services:
+  quant_api:
+    build: .
+    container_name: quant_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - mysql_host=mysql_db
+      - mysql_port=3306
+      - mysql_user=root
+      - mysql_password=${mysql_password:-12345678}
+      - mysql_database=${mysql_database:-etf_strategy}
+      - anthropic_api_key=${anthropic_api_key}
+      - anthropic_base_url=${anthropic_base_url:-https://api.deepseek.com/anthropic}
+      - anthropic_model=${anthropic_model:-deepseek-chat}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./reports:/app/reports
+    depends_on:
+      mysql_db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql_db:
+    image: mysql:8.0
+    container_name: quant_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${mysql_password:-12345678}
+      MYSQL_DATABASE: ${mysql_database:-etf_strategy}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:

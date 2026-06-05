@@ -1,0 +1,15 @@
+{
+  "ticker_order": [
+    "510050",
+    "510300",
+    "510500",
+    "159915",
+    "588000"
+  ],
+  "max_positions": 8,
+  "single_position_cap": 0.3,
+  "observation_dim": 175,
+  "action_dim": 8,
+  "model_class": "PPO",
+  "seed": 42
+}

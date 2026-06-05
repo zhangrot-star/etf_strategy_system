@@ -1,0 +1,16 @@
+.venv/
+.git/
+data/
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.db
+*.db-journal
+optuna.db
+node_modules/
+.DS_Store
+*.egg-info/
+dist/
+build/
+.claude/

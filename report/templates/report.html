@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ strategy_name }} — 量化策略研究报告</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --primary: #1a3a5c; --primary-light: #2c5f8a; --accent: #c41230;
+      --bg: #ffffff; --card-bg: #f8f9fa; --border: #e0e4e8;
+      --text: #2c3e50; --text-secondary: #6c757d; --text-muted: #95a5a6;
+      --positive: #27ae60; --negative: #e74c3c; --neutral: #f39c12;
+      --blue-light: #e8f0fe;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #e8ecf1; color: var(--text);
+      font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+      line-height: 1.8; font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Page container (A4-like) ──────────────── */
+    .page {
+      max-width: 1100px; margin: 24px auto;
+      background: var(--bg);
+      box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+      border-radius: 2px;
+    }
+
+    /* ── COVER / HEADER ────────────────────────── */
+    .cover {
+      padding: 48px 56px 40px;
+      border-bottom: 3px solid var(--primary);
+      background: linear-gradient(180deg, #fafbfc 0%, #fff 100%);
+    }
+    .cover-top { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 24px; }
+    .cover-left h1 { font-size: 28px; font-weight: 700; color: var(--primary); letter-spacing: 1px; margin-bottom: 6px; }
+    .cover-left .subtitle { font-size: 15px; color: var(--text-secondary); }
+    .cover-left .report-type {
+      display: inline-block; background: var(--primary); color: #fff; font-size: 12px;
+      padding: 3px 12px; border-radius: 2px; margin-top: 10px; letter-spacing: 1px;
+    }
+    .cover-right { text-align: right; font-size: 13px; color: var(--text-secondary); line-height: 2; }
+    .cover-right .label { color: var(--text-muted); }
+    .cover-right .rating-badge {
+      display: inline-block; font-size: 18px; font-weight: 700; padding: 4px 16px;
+      border-radius: 2px; margin-top: 4px;
+    }
+    .rating-S { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
+    .rating-A { background: #d4edda; color: #155724; border: 1px solid #28a745; }
+    .rating-B { background: #d1ecf1; color: #0c5460; border: 1px solid #17a2b8; }
+    .rating-C { background: #e2e3e5; color: #383d41; border: 1px solid #adb5bd; }
+    .rating-D { background: #f8d7da; color: #721c24; border: 1px solid #dc3545; }
+    .rating-F { background: #f8d7da; color: #721c24; border: 1px solid #dc3545; }
+
+    /* ── KPI strip ─────────────────────────────── */
+    .kpi-strip {
+      display: grid; grid-template-columns: repeat(5, 1fr);
+      border-bottom: 1px solid var(--border);
+    }
+    .kpi-item {
+      text-align: center; padding: 20px 12px; border-right: 1px solid var(--border);
+    }
+    .kpi-item:last-child { border-right: none; }
+    .kpi-item .kpi-val { font-size: 24px; font-weight: 700; color: var(--primary); }
+    .kpi-item .kpi-val.positive { color: var(--positive); }
+    .kpi-item .kpi-val.negative { color: var(--negative); }
+    .kpi-item .kpi-label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* ── Section ────────────────────────────────── */
+    .section {
+      padding: 36px 56px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section:last-child { border-bottom: none; }
+
+    .section-title {
+      font-size: 18px; font-weight: 700; color: var(--primary);
+      padding-bottom: 12px; margin-bottom: 24px;
+      border-bottom: 2px solid var(--primary);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .section-title .num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; background: var(--primary); color: #fff;
+      font-size: 14px; border-radius: 2px; flex-shrink: 0;
+    }
+
+    /* ── Key points ─────────────────────────────── */
+    .key-points { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .key-point {
+      background: var(--blue-light); border-left: 3px solid var(--primary);
+      padding: 14px 18px; border-radius: 0 4px 4px 0; font-size: 13px;
+    }
+    .key-point strong { color: var(--primary); }
+
+    /* ── Commentary ─────────────────────────────── */
+    .commentary { font-size: 14px; line-height: 2; color: var(--text); white-space: pre-wrap; }
+    .commentary h2 { font-size: 16px; color: var(--primary); margin: 20px 0 10px; }
+    .commentary h3 { font-size: 15px; color: var(--primary-light); margin: 16px 0 8px; }
+
+    /* ── Chart grid ─────────────────────────────── */
+    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .chart-grid .span-2 { grid-column: 1 / -1; }
+    .chart-box {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 16px;
+    }
+    .chart-box .chart-header {
+      font-size: 13px; font-weight: 600; color: var(--text-secondary);
+      margin-bottom: 10px; padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .chart-inner { width: 100%; height: 380px; }
+
+    /* ── Tables ─────────────────────────────────── */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .data-table thead th {
+      background: var(--primary); color: #fff; font-weight: 500;
+      padding: 10px 14px; text-align: left; font-size: 12px; letter-spacing: 0.5px;
+    }
+    .data-table tbody td {
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+    }
+    .data-table tbody tr:hover { background: var(--card-bg); }
+    .data-table tbody tr.total-row {
+      font-weight: 700; border-top: 2px solid var(--primary);
+      background: var(--blue-light);
+    }
+
+    .badge {
+      display: inline-block; padding: 2px 10px; border-radius: 2px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+    }
+    .badge-buy { background: #d4edda; color: #155724; }
+    .badge-hold { background: #fff3cd; color: #856404; }
+    .badge-sell { background: #f8d7da; color: #721c24; }
+
+    /* ── Risk list ──────────────────────────────── */
+    .risk-list { list-style: none; }
+    .risk-list li {
+      padding: 10px 0; border-bottom: 1px dashed var(--border);
+      display: flex; align-items: flex-start; gap: 10px; font-size: 13px;
+    }
+    .risk-list li:last-child { border-bottom: none; }
+    .risk-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; background: var(--accent); color: #fff;
+      font-size: 11px; border-radius: 2px; flex-shrink: 0; margin-top: 2px;
+    }
+
+    /* ── Disclaimer ─────────────────────────────── */
+    .disclaimer {
+      padding: 24px 56px; background: #fafafa; border-top: 2px solid var(--border);
+      font-size: 11px; color: var(--text-muted); line-height: 1.8;
+    }
+    .disclaimer h4 { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+
+    /* ── Rating definitions ─────────────────────── */
+    .rating-defs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .rating-def { font-size: 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 2px; }
+    .rating-def strong { color: var(--primary); }
+
+    @media (max-width: 900px) {
+      .page { margin: 0; }
+      .cover, .section, .disclaimer { padding: 24px 20px; }
+      .kpi-strip { grid-template-columns: repeat(3, 1fr); }
+      .chart-grid { grid-template-columns: 1fr; }
+      .key-points { grid-template-columns: 1fr; }
+      .cover-top { flex-direction: column; }
+      .rating-defs { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .page { box-shadow: none; margin: 0; max-width: none; }
+      .section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ════════════ COVER ════════════ -->
+  <div class="cover">
+    <div class="cover-top">
+      <div class="cover-left">
+        <h1>{{ strategy_name }}</h1>
+        <div class="subtitle">量化策略综合评估报告</div>
+        <div class="report-type">量化策略研究 · 定期报告</div>
+      </div>
+      <div class="cover-right">
+        <div><span class="label">策略评级</span></div>
+        <div class="rating-badge rating-{{ score.rating }}">{{ score.rating_label }}</div>
+        <div style="margin-top:8px;">
+          <span class="label">报告日期：</span>{{ report_date }}<br>
+          <span class="label">回测区间：</span>{{ start_date }} — {{ end_date }}<br>
+          <span class="label">业绩基准：</span>{{ benchmark_name }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ KPI STRIP ════════════ -->
+  <div class="kpi-strip">
+    <div class="kpi-item">
+      <div class="kpi-val" style="color:var(--primary);font-size:36px;">{{ score.total_score }}</div>
+      <div class="kpi-label">综合评分 / 100</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-val {{ 'positive' if metrics.annual_return > 0 else 'negative' }}">{{ '%.2f%%' | format(metrics.annual_return * 100) }}</div>
+      <div class="kpi-label">年化收益率</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-val">{{ '%.2f' | format(metrics.sharpe_ratio) }}</div>
+      <div class="kpi-label">夏普比率</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-val negative">{{ '%.2f%%' | format(metrics.max_drawdown * 100) }}</div>
+      <div class="kpi-label">最大回撤</div>
+    </div>
+    <div class="kpi-item">
+      <div class="kpi-val">{{ '%.1f%%' | format(metrics.win_rate * 100) }}</div>
+      <div class="kpi-label">月度胜率</div>
+    </div>
+  </div>
+
+  <!-- ════════════ 一、投资要点 ════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">一</span> 投资要点</div>
+    <div class="key-points">
+      {% for pt in key_points %}
+      <div class="key-point"><strong>{{ pt.label }}</strong> {{ pt.content }}</div>
+      {% endfor %}
+      {% if not key_points %}
+      <div class="key-point"><strong>核心逻辑：</strong>{{ strategy_name }}基于"基金公司—指数质量—个基评价"三模块打分框架，结合XGBoost机器学习信号进行多维度选基，由LLM情绪分析提供风控覆盖。</div>
+      <div class="key-point"><strong>业绩表现：</strong>回测区间内年化收益{{ '%.1f%%' | format(metrics.annual_return * 100) }}，夏普比率{{ '%.2f' | format(metrics.sharpe_ratio) }}，最大回撤{{ '%.1f%%' | format(metrics.max_drawdown * 100) }}。</div>
+      <div class="key-point"><strong>组合特征：</strong>当前评分{{ score.total_score }}/100（{{ score.rating_label }}），策略信号偏{{ '积极' if score.total_score >= 65 else '中性' if score.total_score >= 50 else '谨慎' }}，建议维持合理仓位。</div>
+      <div class="key-point"><strong>风险关注：</strong>{{ risk_summary or '需关注宏观经济波动、行业政策变化及市场流动性风险，建议动态跟踪组合回撤与波动率变化。' }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ════════════ 二、市场环境 ════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">二</span> 市场环境与情绪分析</div>
+    <div class="commentary">{{ macro_commentary if macro_commentary else '（宏观数据暂未覆盖，以下分析基于价格与情绪数据。）' }}</div>
+    {% if sentiment_summary %}
+    <div style="margin-top:16px;">{{ sentiment_summary }}</div>
+    {% endif %}
+  </div>
+
+  <!-- ════════════ 三、组合业绩表现 ════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">三</span> 组合业绩表现</div>
+    <div class="chart-grid">
+      <div class="chart-box span-2">
+        <div class="chart-header">净值曲线与回撤</div>
+        <div class="chart-inner" id="chart-equity" style="height:420px;"></div>
+      </div>
+      <div class="chart-box span-2">
+        <div class="chart-header">月度收益分布</div>
+        <div class="chart-inner" id="chart-monthly" style="height:350px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ 四、行业配置 ════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">四</span> 行业配置与板块分布</div>
+    <div class="chart-grid">
+      <div class="chart-box">
+        <div class="chart-header">板块持仓占比</div>
+        <div class="chart-inner" id="chart-sector"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-header">配置观点</div>
+        <div class="commentary" style="font-size:13px;">{{ sector_commentary or '当前组合行业配置较为分散，覆盖宽基、科技、金融、消费、医药、军工、商品等多个板块。建议根据市场风格轮动动态调整板块权重。' }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ 五、多周期收益预测 ════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">五</span> 多周期收益预测</div>
+    <div class="chart-grid">
+      <div class="chart-box span-2">
+        <div class="chart-header">Top 10 ETF 多周期预测收益（%）</div>
+        <div class="chart-inner" id="chart-predicted-returns" style="height:400px;"></div>
+      </div>
+    </div>
+    {% if prediction_commentary %}
+    <div class="commentary" style="margin-top:16px;font-size:13px;">{{ prediction_commentary }}</div>
+    {% endif %}
+  </div>
+
+  <!-- ════════════ 六、持仓建议 ════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">六</span> 持仓建议与个基评价</div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>代码</th>
+          <th>名称</th>
+          <th>权重</th>
+          <th>信号</th>
+          <th>情绪极性</th>
+          <th>21日预测收益</th>
+          <th>上涨概率</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in allocation_table %}
+        <tr>
+          <td style="font-weight:600;">{{ row.ticker_code }}</td>
+          <td>{{ row.ticker_name }}</td>
+          <td>{{ '%.2f%%' | format(row.weight * 100) }}</td>
+          <td>
+            {% if row.signal == 'BUY' %}
+            <span class="badge badge-buy">买入</span>
+            {% elif row.signal == 'SELL' %}
+            <span class="badge badge-sell">卖出</span>
+            {% else %}
+            <span class="badge badge-hold">持有</span>
+            {% endif %}
+          </td>
+          <td>{{ '%.2f' | format(row.polarity) }}</td>
+          <td style="color:{{ '#27ae60' if row.pred_21d > 0 else '#e74c3c' }};">{{ '%+.2f%%' | format(row.pred_21d * 100) }}</td>
+          <td>{{ '%.1f%%' | format(row.prob_up * 100) }}</td>
+        </tr>
+        {% endfor %}
+        {% if not allocation_table %}
+        <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">暂无持仓数据</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    {% if allocation_commentary %}
+    <div class="commentary" style="margin-top:16px;font-size:13px;">{{ allocation_commentary }}</div>
+    {% endif %}
+  </div>
+
+  <!-- ════════════ 七、技术分析 ════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">七</span> 技术分析 — {{ benchmark_name }}</div>
+    <div class="chart-grid">
+      <div class="chart-box span-2">
+        <div class="chart-header">周K线图（近52周）— 含MA5/MA10/MA20均线及成交量</div>
+        <div class="chart-inner" id="chart-kline" style="height:500px;"></div>
+      </div>
+    </div>
+    {% if technical_commentary %}
+    <div class="commentary" style="margin-top:16px;font-size:13px;">{{ technical_commentary }}</div>
+    {% endif %}
+  </div>
+
+  <!-- ════════════ 八、风险提示 ════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">八</span> 风险提示</div>
+    <ul class="risk-list">
+      {% for risk in risk_factors %}
+      <li><span class="risk-icon">!</span> <span><strong>{{ risk.title }}</strong> — {{ risk.desc }}</span></li>
+      {% endfor %}
+      {% if not risk_factors %}
+      <li><span class="risk-icon">!</span> <span><strong>市场风险</strong> — 全球宏观经济波动、地缘政治冲突及突发事件可能导致市场大幅波动，影响组合收益。</span></li>
+      <li><span class="risk-icon">!</span> <span><strong>模型风险</strong> — 量化模型基于历史数据统计规律，存在过拟合风险，未来市场环境变化可能导致模型失效。</span></li>
+      <li><span class="risk-icon">!</span> <span><strong>流动性风险</strong> — 部分ETF规模较小或日均成交额偏低，大额交易时可能产生较高冲击成本。</span></li>
+      <li><span class="risk-icon">!</span> <span><strong>跟踪误差风险</strong> — ETF实际收益可能偏离标的指数，尤其在市场剧烈波动或大额申赎期间。</span></li>
+      <li><span class="risk-icon">!</span> <span><strong>行业集中风险</strong> — 策略在特定行业或主题上的集中配置可能导致超出基准的回撤。</span></li>
+      <li><span class="risk-icon">!</span> <span><strong>政策风险</strong> — 监管政策变化（如行业整顿、税收调整）可能对特定板块产生重大影响。</span></li>
+      {% endif %}
+    </ul>
+  </div>
+
+  <!-- ════════════ 附录：评分明细 ════════════ -->
+  <div class="section">
+    <div class="section-title">附录：策略评分明细</div>
+    <table class="data-table">
+      <thead>
+        <tr><th>评分维度</th><th>原始值</th><th>得分</th><th>满分</th><th>评分方法</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>年化收益率</td><td>{{ '%.2f%%' | format(score.annual_return * 100) }}</td><td>{{ score.annual_return_score }}</td><td>25</td><td>线性映射 0%→0分，30%+→25分</td></tr>
+        <tr><td>夏普比率</td><td>{{ '%.2f' | format(score.sharpe_ratio) }}</td><td>{{ score.sharpe_score }}</td><td>25</td><td>线性映射 0→0分，3.0+→25分</td></tr>
+        <tr><td>最大回撤</td><td>{{ '%.2f%%' | format(score.max_drawdown * 100) }}</td><td>{{ score.max_drawdown_score }}</td><td>20</td><td>逆线性映射 0%→20分，30%+→0分</td></tr>
+        <tr><td>月度胜率</td><td>{{ '%.1f%%' | format(score.win_rate * 100) }}</td><td>{{ score.win_rate_score }}</td><td>15</td><td>线性映射 0%→0分，100%→15分</td></tr>
+        <tr><td>Calmar比率</td><td>{{ '%.2f' | format(score.calmar_ratio) }}</td><td>{{ score.calmar_score }}</td><td>15</td><td>线性映射 0→0分，3.0+→15分</td></tr>
+        <tr class="total-row">
+          <td>综合评分</td>
+          <td>评级：{{ score.rating_label }}（{{ score.rating }}）</td>
+          <td><strong>{{ score.total_score }}</strong></td>
+          <td><strong>100</strong></td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ════════════ 免责声明 ════════════ -->
+  <div class="disclaimer">
+    <h4>免责声明</h4>
+    <p>
+      本报告由ETF量化策略系统自动生成，仅供研究参考，不构成任何投资建议。<br>
+      报告中所含数据来源于公开信息及第三方数据服务商（yfinance、东方财富等），
+      虽已力求准确，但不对其完整性与时效性作任何保证。<br>
+      历史业绩不代表未来表现。投资者应根据自身风险承受能力独立作出投资决策，并自行承担投资风险。<br>
+      量化模型基于历史数据统计规律构建，市场环境变化可能导致模型预测能力显著下降。<br>
+      本报告中的AI分析评论由大语言模型（Claude API / DeepSeek API）生成，不代表任何机构立场。
+    </p>
+
+    <h4 style="margin-top:16px;">评级定义</h4>
+    <div class="rating-defs">
+      <div class="rating-def"><strong>S — 卓越（≥90分）</strong>：策略各维度表现优异，风险调整后收益突出，强烈推荐。</div>
+      <div class="rating-def"><strong>A — 优秀（≥80分）</strong>：策略表现良好，多数指标优于基准，推荐关注。</div>
+      <div class="rating-def"><strong>B — 良好（≥65分）</strong>：策略整体稳健，部分指标有提升空间，适度配置。</div>
+      <div class="rating-def"><strong>C — 一般（≥50分）</strong>：策略表现中规中矩，需持续跟踪与优化，谨慎配置。</div>
+      <div class="rating-def"><strong>D — 较差（≥35分）</strong>：策略多项指标偏弱，建议降低仓位或暂停使用。</div>
+      <div class="rating-def"><strong>F — 高风险（＜35分）</strong>：策略风险收益特征不佳，不建议使用。</div>
+    </div>
+  </div>
+
+</div><!-- /.page -->
+
+<!-- ════════════ ECHARTS SCRIPTS ════════════ -->
+<script>
+(function() {
+  const chartData = JSON.parse('{{ chart_data_json | safe }}');
+  const colors = {
+    primary: '#1a3a5c', accent: '#c41230', positive: '#27ae60', negative: '#e74c3c',
+    blue: '#2c5f8a', cyan: '#0891b2', purple: '#7c3aed', orange: '#ea580c',
+    palette: ['#1a3a5c','#2c5f8a','#c41230','#27ae60','#7c3aed','#0891b2','#ea580c','#e74c3c',
+              '#8b5cf6','#059669','#d97706','#dc2626','#2563eb','#9333ea','#0d9488','#b91c1c']
+  };
+
+  // Light theme for all charts
+  const lightTheme = {
+    textStyle: { color: '#6c757d' },
+    legend: { textStyle: { color: '#6c757d' } }
+  };
+
+  // ── Chart 1: Equity Curve + Drawdown (professional) ──
+  (function() {
+    const dom = document.getElementById('chart-equity');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+
+    const rawEquity = chartData.equity_curve || [];
+    const dates = rawEquity.map(d => d.date);
+    const portfolio = rawEquity.map(d => d.portfolio);
+    const benchmark = rawEquity.map(d => d.benchmark);
+    const ddRaw = chartData.drawdown || [];
+    const drawdown = ddRaw.map(d => Math.round(d.value * 10000) / 100);
+
+    // split into gain / loss bands vs benchmark for coloring
+    const excessFills = portfolio.map((v, i) => {
+      if (i === 0) return { value: 0, itemStyle: { color: 'rgba(39,174,96,0.12)' } };
+      return { value: v - benchmark[i], itemStyle: { color: (v >= benchmark[i]) ? 'rgba(39,174,96,0.12)' : 'rgba(231,76,60,0.10)' } };
+    });
+
+    const option = {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross', crossStyle: { color: '#95a5a6' } },
+        backgroundColor: '#fff',
+        borderColor: '#e0e4e8',
+        textStyle: { color: '#2c3e50', fontSize: 12 },
+        formatter: function(params) {
+          var d = params[0].name;
+          var s = '<b>' + d + '</b><br/>';
+          params.forEach(function(p) {
+            if (p.seriesName === '超额填充') return;
+            var val = p.value;
+            if (p.seriesName === '回撤') val = val.toFixed(2) + '%';
+            else val = val.toFixed(4);
+            s += p.marker + ' ' + p.seriesName + ': <b>' + val + '</b><br/>';
+          });
+          return s;
+        }
+      },
+      legend: {
+        data: ['策略净值', '基准净值', '回撤'],
+        top: 6, left: 'center',
+        textStyle: { color: '#6c757d', fontSize: 12 },
+        itemGap: 24
+      },
+      grid: { left: 70, right: 70, top: 50, bottom: 40 },
+      xAxis: {
+        type: 'category', data: dates, boundaryGap: false,
+        axisLabel: { color: '#95a5a6', fontSize: 10 },
+        axisLine: { lineStyle: { color: '#e0e4e8' } },
+        axisTick: { show: false }
+      },
+      yAxis: [
+        {
+          type: 'value', name: '净值', nameTextStyle: { color: '#6c757d', fontSize: 11 },
+          axisLabel: { color: '#95a5a6', fontSize: 10 },
+          splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
+          min: function(v) { return Math.floor(v.min * 100) / 100; }
+        },
+        {
+          type: 'value', name: '回撤 (%)', nameTextStyle: { color: '#e74c3c', fontSize: 11 },
+          axisLabel: { color: '#e74c3c', fontSize: 10, formatter: '{value}%' },
+          splitLine: { show: false },
+          inverse: true,
+          max: 0
+        }
+      ],
+      series: [
+        {
+          name: '策略净值', type: 'line', data: portfolio, smooth: true,
+          lineStyle: { color: '#1a3a5c', width: 2.5 },
+          itemStyle: { color: '#1a3a5c' },
+          symbol: 'none',
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(26,58,92,0.15)' },
+              { offset: 1, color: 'rgba(26,58,92,0.0)' }
+            ])
+          },
+          markLine: {
+            silent: true, symbol: 'none',
+            lineStyle: { color: '#bdc3c7', type: 'dotted', width: 1 },
+            data: [{ yAxis: 1.0, label: { formatter: '净值 1.0', color: '#95a5a6', fontSize: 10 } }]
+          }
+        },
+        {
+          name: '基准净值', type: 'line', data: benchmark, smooth: true,
+          lineStyle: { color: '#f39c12', width: 1.8, type: 'dashed' },
+          itemStyle: { color: '#f39c12' },
+          symbol: 'none'
+        },
+        {
+          name: '回撤', type: 'line', yAxisIndex: 1, data: drawdown, smooth: true,
+          lineStyle: { color: '#e74c3c', width: 1.5, type: 'solid' },
+          itemStyle: { color: '#e74c3c' },
+          symbol: 'none',
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(231,76,60,0.18)' },
+              { offset: 1, color: 'rgba(231,76,60,0.01)' }
+            ])
+          }
+        }
+      ],
+      dataZoom: [
+        { type: 'inside', start: 0, end: 100 },
+        { type: 'slider', bottom: 4, height: 22, borderColor: '#e0e4e8',
+          fillerColor: 'rgba(26,58,92,0.08)', handleStyle: { color: '#1a3a5c' } }
+      ]
+    };
+    chart.setOption(option);
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+  // ── Chart 2: Monthly Returns ───────────────
+  (function() {
+    const dom = document.getElementById('chart-monthly');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+
+    const raw = chartData.monthly_returns || [];
+    const labels = raw.map(r => r[0] + '-' + String(r[1]).padStart(2,'0'));
+    const values = raw.map(r => parseFloat((r[2] * 100).toFixed(2)));
+
+    const option = {
+      tooltip: {
+        trigger: 'axis',
+        formatter: p => p[0].name + '<br/>月度收益: <b>' + (p[0].value >= 0 ? '+' : '') + p[0].value + '%</b>'
+      },
+      grid: { left: 55, right: 20, top: 20, bottom: 50 },
+      xAxis: {
+        type: 'category', data: labels,
+        axisLabel: { color: '#95a5a6', fontSize: 10, rotate: 45 },
+        axisLine: { lineStyle: { color: '#e0e4e8' } },
+        axisTick: { show: false }
+      },
+      yAxis: {
+        type: 'value', name: '收益(%)', nameTextStyle: { color: '#6c757d' },
+        axisLabel: { color: '#95a5a6' },
+        splitLine: { lineStyle: { color: '#f0f0f0' } }
+      },
+      series: [{
+        type: 'bar', data: values,
+        itemStyle: {
+          color: function(p) { return p.value >= 0 ? '#27ae60' : '#e74c3c'; },
+          borderRadius: [2,2,0,0]
+        },
+        emphasis: { itemStyle: { color: '#1a3a5c' } }
+      }],
+      dataZoom: [{ type: 'slider', bottom: 5, height: 15, borderColor: '#e0e4e8' }]
+    };
+    chart.setOption(option);
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+  // ── Chart 3: Sector Allocation ─────────────
+  (function() {
+    const dom = document.getElementById('chart-sector');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+
+    const sectors = chartData.sector_allocation || [];
+
+    const option = {
+      tooltip: { trigger: 'item', formatter: '{b}: {c}%' },
+      legend: {
+        orient: 'vertical', right: 10, top: 'center',
+        textStyle: { color: '#6c757d', fontSize: 11 }
+      },
+      series: [{
+        type: 'pie', radius: ['45%', '75%'], center: ['40%', '50%'],
+        avoidLabelOverlap: false,
+        itemStyle: { borderRadius: 3, borderColor: '#fff', borderWidth: 2 },
+        label: { show: true, position: 'inside', formatter: '{d}%', fontSize: 11, color: '#fff' },
+        emphasis: { label: { show: true, fontSize: 16, fontWeight: 'bold' } },
+        data: sectors.map((s, i) => ({
+          value: s.value, name: s.name,
+          itemStyle: { color: colors.palette[i % colors.palette.length] }
+        }))
+      }]
+    };
+    chart.setOption(option);
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+  // ── Chart 4: K-line + MA + Volume (professional) ──
+  (function() {
+    const dom = document.getElementById('chart-kline');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+
+    const rawKline = chartData.kline || [];
+    const signals = chartData.kline_signals || [];
+
+    const dates = rawKline.map(d => d.date);
+    const ohlc = rawKline.map(d => [d.open, d.close, d.low, d.high]);
+    const closes = rawKline.map(d => d.close);
+    const volumes = rawKline.map(d => d.volume || 0);
+
+    // Compute MA5, MA10, MA20
+    function calcMA(data, n) {
+      var result = [];
+      for (var i = 0; i < data.length; i++) {
+        if (i < n - 1) { result.push(null); continue; }
+        var sum = 0;
+        for (var j = 0; j < n; j++) sum += data[i - j];
+        result.push(parseFloat((sum / n).toFixed(3)));
+      }
+      return result;
+    }
+    const ma5 = calcMA(closes, 5);
+    const ma10 = calcMA(closes, 10);
+    const ma20 = calcMA(closes, 20);
+
+    // Build signal markers
+    const signalMap = {};
+    signals.forEach(s => { signalMap[s.date] = s; });
+
+    const buyMarks = [];
+    const sellMarks = [];
+    dates.forEach((d, i) => {
+      if (signalMap[d]) {
+        const s = signalMap[d];
+        const price = ohlc[i][3] * 1.025;
+        if (s.action === 'buy') {
+          buyMarks.push({
+            name: 'B', coord: [d, price], value: s.weight,
+            symbol: 'arrow', symbolSize: 16, symbolRotate: 0,
+            itemStyle: { color: '#c41230' },
+            label: { show: true, color: '#c41230', fontWeight: 'bold', fontSize: 11, position: 'top' }
+          });
+        } else {
+          sellMarks.push({
+            name: 'S', coord: [d, price], value: s.weight,
+            symbol: 'arrow', symbolSize: 16, symbolRotate: 180,
+            itemStyle: { color: '#27ae60' },
+            label: { show: true, color: '#27ae60', fontWeight: 'bold', fontSize: 11, position: 'bottom' }
+          });
+        }
+      }
+    });
+
+    // Volume bar colors
+    const volColors = ohlc.map(d => d[1] >= d[0] ? 'rgba(196,18,48,0.5)' : 'rgba(39,174,96,0.5)');
+
+    const option = {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        backgroundColor: '#fff',
+        borderColor: '#e0e4e8',
+        textStyle: { color: '#2c3e50', fontSize: 12 },
+        formatter: function(params) {
+          var d = params[0];
+          if (!d) return '';
+          var k = rawKline[d.dataIndex];
+          if (!k) return d.name;
+          return '<b>' + d.name + '</b><br/>'
+            + '开盘: ' + k.open.toFixed(3) + '&nbsp;&nbsp;收盘: <b>' + k.close.toFixed(3) + '</b><br/>'
+            + '最高: ' + k.high.toFixed(3) + '&nbsp;&nbsp;最低: ' + k.low.toFixed(3) + '<br/>'
+            + 'MA5: ' + (ma5[d.dataIndex] != null ? ma5[d.dataIndex].toFixed(3) : '—') + '&nbsp;&nbsp;'
+            + 'MA20: ' + (ma20[d.dataIndex] != null ? ma20[d.dataIndex].toFixed(3) : '—');
+        }
+      },
+      axisPointer: {
+        link: [{ xAxisIndex: 'all' }],
+        label: { backgroundColor: '#1a3a5c' }
+      },
+      grid: [
+        { left: 80, right: 80, top: 40, height: 280 },
+        { left: 80, right: 80, top: 340, height: 70 }
+      ],
+      xAxis: [
+        {
+          type: 'category', data: dates, gridIndex: 0,
+          axisLabel: { color: '#95a5a6', fontSize: 10 },
+          axisLine: { lineStyle: { color: '#e0e4e8' } },
+          axisTick: { show: false }
+        },
+        {
+          type: 'category', data: dates, gridIndex: 1,
+          axisLabel: { show: false },
+          axisLine: { lineStyle: { color: '#e0e4e8' } },
+          axisTick: { show: false }
+        }
+      ],
+      yAxis: [
+        {
+          type: 'value', name: '价格', scale: true, gridIndex: 0,
+          nameTextStyle: { color: '#6c757d', fontSize: 11 },
+          axisLabel: { color: '#95a5a6', fontSize: 10 },
+          splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } }
+        },
+        {
+          type: 'value', name: '成交量', gridIndex: 1,
+          nameTextStyle: { color: '#6c757d', fontSize: 10 },
+          axisLabel: { color: '#95a5a6', fontSize: 9, formatter: function(v) { return v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'K' : v; } },
+          splitLine: { show: false }
+        }
+      ],
+      series: [
+        {
+          name: '{{ benchmark_name }}', type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
+          itemStyle: { color: '#c41230', color0: '#27ae60', borderColor: '#c41230', borderColor0: '#27ae60' },
+          markPoint: {
+            symbol: 'arrow',
+            symbolSize: 16,
+            data: buyMarks.concat(sellMarks)
+          }
+        },
+        {
+          name: 'MA5', type: 'line', data: ma5, xAxisIndex: 0, yAxisIndex: 0,
+          smooth: true, symbol: 'none',
+          lineStyle: { color: '#f39c12', width: 1.2 }
+        },
+        {
+          name: 'MA10', type: 'line', data: ma10, xAxisIndex: 0, yAxisIndex: 0,
+          smooth: true, symbol: 'none',
+          lineStyle: { color: '#0891b2', width: 1.2 }
+        },
+        {
+          name: 'MA20', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0,
+          smooth: true, symbol: 'none',
+          lineStyle: { color: '#7c3aed', width: 1.2 }
+        },
+        {
+          name: '成交量', type: 'bar', data: volumes, xAxisIndex: 1, yAxisIndex: 1,
+          itemStyle: { color: function(p) { return volColors[p.dataIndex]; } }
+        }
+      ],
+      dataZoom: [
+        { type: 'inside', xAxisIndex: [0, 1], start: 40, end: 100 },
+        { type: 'slider', xAxisIndex: [0, 1], bottom: 4, height: 22, start: 40, end: 100,
+          borderColor: '#e0e4e8', fillerColor: 'rgba(26,58,92,0.06)', handleStyle: { color: '#1a3a5c' } }
+      ]
+    };
+    chart.setOption(option);
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+  // ── Chart: Predicted Returns Bar ────────────
+  (function() {
+    const dom = document.getElementById('chart-predicted-returns');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+    const data = chartData.predicted_returns || [];
+    if (!data.length) return;
+
+    const tickers = data.map(d => d.ticker + (d.name ? ' ' + d.name : ''));
+    const option = {
+      tooltip: {
+        trigger: 'axis',
+        formatter: function(params) {
+          var s = params[0].name + '<br/>';
+          params.forEach(function(p) {
+            s += p.marker + ' ' + p.seriesName + ': <b>' + (p.value >= 0 ? '+' : '') + p.value + '%</b><br/>';
+          });
+          return s;
+        }
+      },
+      legend: {
+        data: ['5日预测','21日预测','63日预测'],
+        textStyle: { color: '#6c757d', fontSize: 12 }, top: 0
+      },
+      grid: { left: 80, right: 40, top: 40, bottom: 50 },
+      xAxis: {
+        type: 'category', data: tickers,
+        axisLabel: { color: '#2c3e50', fontSize: 10, rotate: 30 },
+        axisLine: { lineStyle: { color: '#e0e4e8' } },
+        axisTick: { show: false }
+      },
+      yAxis: {
+        type: 'value', name: '预测收益(%)', nameTextStyle: { color: '#6c757d' },
+        axisLabel: { color: '#95a5a6', formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#f0f0f0' } }
+      },
+      series: [
+        { name: '5日预测', type: 'bar', data: data.map(d => d.return_5d),
+          itemStyle: { color: '#0891b2' }, barGap: '10%' },
+        { name: '21日预测', type: 'bar', data: data.map(d => d.return_21d),
+          itemStyle: { color: '#1a3a5c' } },
+        { name: '63日预测', type: 'bar', data: data.map(d => d.return_63d),
+          itemStyle: { color: '#7c3aed' } },
+      ],
+      dataZoom: [{ type: 'slider', bottom: 5, height: 15, borderColor: '#e0e4e8' }]
+    };
+    chart.setOption(option);
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+})();
+</script>
+</body>
+</html>
