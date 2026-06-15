@@ -102,8 +102,72 @@ rl:
     n_folds: 5
     validation_months: 12
 
+# Execution
+execution:
+  broker: "paper"
+  dry_run: true
+  min_trade_amount: 5000
+  rebalance_threshold: 0.01
+  max_single_order: 100000
+  circuit_breaker: true
+  max_daily_turnover: 0.3
+  order_timeout: 60
+
+# Schedule
+schedule:
+  enabled: false
+  cron: "0 15 * * 1-5"
+  timezone: "Asia/Shanghai"
+
+# Notification
+notification:
+  enabled: false
+  webhook_url: ""
+
 # API
 api:
   host: "0.0.0.0"
   port: 8000
   workers: 4
+
+# ── Bank Analyzer ─────────────────────────────────────────────────
+bank_analyzer:
+  enabled: true
+  use_synthetic_data: true              # 当 akshare 不可用时使用行业基准推算
+  model_path: "models/bank_scorer"      # XGBoost 模型路径
+  report_output_dir: "./reports/bank"   # 银行分析报告输出目录
+
+  # 银行合作潜力评分权重
+  scoring:
+    scale_weight: 0.25                  # Module A: 规模与市场地位
+    card_quality_weight: 0.30           # Module B: 信用卡业务质量
+    digital_weight: 0.25                # Module C: 数字化能力
+    stability_weight: 0.20              # Module D: 风险与稳定性
+
+  # 痛点分析
+  pain_point:
+    llm_provider: "deepseek"            # deepseek | claude
+    llm_model: "deepseek-v4-pro"
+    use_template_fallback: true         # LLM 不可用时使用模板回退
+    concurrency_sleep: 0.5              # 批量分析时的请求间隔（秒）
+
+  # 可配置的监控银行列表（默认全部 18 家）
+  monitored_banks:
+    - "ICBC"    # 工商银行
+    - "CCB"     # 建设银行
+    - "ABC"     # 农业银行
+    - "BOC"     # 中国银行
+    - "BOCOM"   # 交通银行
+    - "PSBC"    # 邮储银行
+    - "CMB"     # 招商银行
+    - "CITIC"   # 中信银行
+    - "SPDB"    # 浦发银行
+    - "CMBC"    # 民生银行
+    - "CIB"     # 兴业银行
+    - "CEB"     # 光大银行
+    - "PAB"     # 平安银行
+    - "HXB"     # 华夏银行
+    - "GDB"     # 广发银行
+    - "BQD"     # 浙商银行
+    - "BOB"     # 渤海银行
+    - "HFB"     # 恒丰银行

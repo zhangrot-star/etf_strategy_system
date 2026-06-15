@@ -36,6 +36,11 @@ from data_pipeline.db_manager import DatabaseManager
 _DB = DatabaseManager(Settings())
 _SETTINGS = Settings()
 
+# Execution system globals (initialised in startup)
+_broker = None
+_position_tracker = None
+_auto_trader = None
+
 
 def load_config(path: str = "config.yaml") -> dict[str, Any]:
     global _CONFIG
@@ -46,7 +51,38 @@ def load_config(path: str = "config.yaml") -> dict[str, Any]:
 
 @app.on_event("startup")
 async def startup() -> None:
+    global _broker, _position_tracker, _auto_trader
     load_config()
+
+    # Init broker
+    from execution.broker_interface import PaperBroker
+    _broker = PaperBroker(initial_cash=1_000_000.0)
+    _broker.connect()
+    logger.info("Broker initialised — paper mode")
+
+    # Init position tracker
+    from portfolio.position_tracker import PositionTracker
+    _position_tracker = PositionTracker()
+    _position_tracker.sync_from_broker(_broker)
+
+    # Init auto trader
+    from portfolio.position_tracker import AutoTrader
+    _auto_trader = AutoTrader(config=_CONFIG, db_manager=_DB)
+
+    # Optionally start scheduler if enabled
+    sched_cfg = _CONFIG.get("schedule", {})
+    if sched_cfg.get("enabled", False):
+        try:
+            from scheduler.jobs import start_scheduler
+            start_scheduler(
+                _auto_trader,
+                cron_expr=sched_cfg.get("cron", "0 15 * * 1-5"),
+                timezone=sched_cfg.get("timezone", "Asia/Shanghai"),
+            )
+            logger.info("Scheduler started")
+        except Exception:
+            logger.warning("Failed to start scheduler", exc_info=True)
+
     logger.info("Config loaded — market=%s", _CONFIG.get("market", "?"))
 
 
@@ -388,6 +424,262 @@ async def update_data(req: DataUpdateRequest, bg: BackgroundTasks) -> dict[str, 
     return {"job_id": job_id, "status": "pending"}
 
 
+# ── Portfolio / Execution routes ──────────────────────────────────
+
+
+@app.get("/portfolio/current")
+async def get_current_portfolio() -> dict[str, Any]:
+    """Return current portfolio positions from broker."""
+    global _broker, _position_tracker
+    try:
+        if _broker is None:
+            return {"status": "error", "message": "Broker not initialised"}
+
+        _position_tracker.sync_from_broker(_broker)
+        positions = _position_tracker.get_snapshot()
+        account = _broker.get_account_info()
+
+        return {
+            "account": {
+                "total_asset": account.total_asset,
+                "available_cash": account.available_cash,
+                "frozen_cash": account.frozen_cash,
+                "total_return": account.total_return,
+            },
+            "positions": [
+                {
+                    "ticker": p.ticker, "name": p.name, "shares": p.shares,
+                    "avg_cost": p.avg_cost, "current_price": p.current_price,
+                    "market_value": p.market_value, "pnl": p.pnl,
+                }
+                for p in positions
+            ],
+            "position_count": len(positions),
+        }
+    except Exception as e:
+        logger.exception("Portfolio current failed")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/portfolio/target")
+async def get_target_portfolio() -> dict[str, Any]:
+    """Return the latest target allocation from recommendation pipeline."""
+    try:
+        from recommendation.pipeline import DailyRecommendationPipeline
+        from datetime import date
+        import pandas as pd
+
+        run_date = date.today()
+        tickers = _resolve_tickers(None)
+        start = pd.Timestamp(run_date.replace(year=run_date.year - 2))
+        prices = _DB.load_prices(tickers, start, pd.Timestamp(run_date))
+
+        pipeline = DailyRecommendationPipeline(config=_CONFIG)
+        result = pipeline.run(prices, run_date=run_date)
+
+        return {
+            "date": str(result.date),
+            "risk_status": result.risk_status,
+            "cash_weight": result.cash_weight,
+            "targets": [
+                {
+                    "ticker": etf.ticker, "name": etf.name,
+                    "weight": etf.allocation_weight, "rating": etf.rating,
+                    "ml_signal": etf.ml_signal, "recommendation": etf.recommendation,
+                    "total_score": etf.total_score,
+                }
+                for etf in result.ranked_etfs
+            ],
+        }
+    except Exception as e:
+        logger.exception("Portfolio target failed")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/portfolio/rebalance")
+async def get_rebalance_preview() -> dict[str, Any]:
+    """Preview rebalance diff without executing."""
+    global _broker, _position_tracker
+    try:
+        from datetime import date
+        import pandas as pd
+        from recommendation.pipeline import DailyRecommendationPipeline
+        from portfolio.rebalance_engine import RebalanceEngine
+
+        # Get current positions
+        _position_tracker.sync_from_broker(_broker)
+        positions = _position_tracker.get_snapshot()
+        account = _broker.get_account_info()
+
+        # Get target recommendation
+        run_date = date.today()
+        tickers = _resolve_tickers(None)
+        start = pd.Timestamp(run_date.replace(year=run_date.year - 2))
+        prices = _DB.load_prices(tickers, start, pd.Timestamp(run_date))
+        pipeline = DailyRecommendationPipeline(config=_CONFIG)
+        recommendation = pipeline.run(prices, run_date=run_date)
+
+        # Compute diff
+        pos_dicts = [{
+            "ticker": p.ticker, "market_value": p.market_value,
+            "shares": p.shares, "current_price": p.current_price,
+        } for p in positions]
+
+        engine = RebalanceEngine(config=_CONFIG)
+        diff = engine.compute_diff(pos_dicts, recommendation, account.total_asset)
+
+        return {
+            "date": str(run_date),
+            "total_asset": account.total_asset,
+            "diff_summary": diff.summary(),
+            "diffs": [
+                {
+                    "ticker": d.ticker, "current_weight": d.current_weight,
+                    "target_weight": d.target_weight, "delta_w": d.delta_w,
+                    "action": d.action, "trade_value": d.trade_value,
+                }
+                for d in diff.items if d.action != "HOLD"
+            ],
+        }
+    except Exception as e:
+        logger.exception("Rebalance preview failed")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/execution/dry-run")
+async def post_dry_run() -> dict[str, Any]:
+    """Execute a dry-run rebalance (no real orders)."""
+    global _auto_trader
+    try:
+        if _auto_trader is None:
+            from portfolio.position_tracker import AutoTrader
+            _auto_trader = AutoTrader(config=_CONFIG, db_manager=_DB)
+
+        result = _auto_trader.run(dry_run=True)
+        return result.summary()
+    except Exception as e:
+        logger.exception("Dry-run failed")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/execution/rebalance")
+async def post_live_rebalance() -> dict[str, Any]:
+    """Execute a live rebalance (REAL orders — use with caution)."""
+    global _auto_trader
+    try:
+        exec_cfg = _CONFIG.get("execution", {})
+        if exec_cfg.get("dry_run", True):
+            return {
+                "status": "blocked",
+                "message": "execution.dry_run is true in config — set to false to enable live trading",
+            }
+
+        if _auto_trader is None:
+            from portfolio.position_tracker import AutoTrader
+            _auto_trader = AutoTrader(config=_CONFIG, db_manager=_DB)
+
+        result = _auto_trader.run(dry_run=False)
+        summary = result.summary()
+        summary["orders"] = [
+            {
+                "order_id": getattr(r, "order_id", ""),
+                "ticker": getattr(r, "ticker", ""),
+                "side": getattr(r, "side", ""),
+                "quantity": getattr(r, "quantity", 0),
+                "price": getattr(r, "price", 0),
+                "status": getattr(r, "status", "unknown"),
+                "filled_qty": getattr(r, "filled_qty", 0),
+            }
+            for r in result.order_results
+        ]
+        return summary
+    except Exception as e:
+        logger.exception("Live rebalance failed")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/execution/orders")
+async def get_orders(status: str | None = None) -> dict[str, Any]:
+    """Query recent orders from broker."""
+    global _broker
+    try:
+        if _broker is None:
+            return {"status": "error", "message": "Broker not initialised"}
+
+        orders = _broker.query_orders(status=status)
+        return {
+            "count": len(orders),
+            "orders": [
+                {
+                    "order_id": o.order_id, "ticker": o.ticker,
+                    "side": o.side, "quantity": o.quantity,
+                    "price": o.price, "status": o.status,
+                    "filled_qty": o.filled_qty, "timestamp": o.timestamp,
+                }
+                for o in orders
+            ],
+        }
+    except Exception as e:
+        logger.exception("Query orders failed")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/execution/order/{order_id}")
+async def get_order_detail(order_id: str) -> dict[str, Any]:
+    """Get detail for a specific order."""
+    global _broker
+    try:
+        if _broker is None:
+            return {"status": "error", "message": "Broker not initialised"}
+
+        orders = _broker.query_orders()
+        for o in orders:
+            if o.order_id == order_id:
+                return {
+                    "order_id": o.order_id, "ticker": o.ticker,
+                    "side": o.side, "quantity": o.quantity,
+                    "price": o.price, "status": o.status,
+                    "filled_qty": o.filled_qty, "timestamp": o.timestamp,
+                }
+        return {"status": "not_found", "order_id": order_id}
+    except Exception as e:
+        logger.exception("Order detail failed")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/execution/status")
+async def get_execution_status() -> dict[str, Any]:
+    """Get execution system status."""
+    global _broker, _position_tracker, _auto_trader
+    try:
+        sched_cfg = _CONFIG.get("schedule", {})
+        exec_cfg = _CONFIG.get("execution", {})
+
+        next_run = None
+        try:
+            from scheduler.jobs import get_next_run_time
+            next_run = get_next_run_time()
+        except Exception:
+            next_run = "scheduler not available"
+
+        return {
+            "broker": exec_cfg.get("broker", "paper"),
+            "dry_run": exec_cfg.get("dry_run", True),
+            "broker_connected": _broker is not None,
+            "positions_tracked": len(_position_tracker.get_snapshot()) if _position_tracker else 0,
+            "schedule": {
+                "enabled": sched_cfg.get("enabled", False),
+                "cron": sched_cfg.get("cron", ""),
+                "next_run": next_run,
+            },
+            "circuit_breaker": exec_cfg.get("circuit_breaker", True),
+            "min_trade_amount": exec_cfg.get("min_trade_amount", 5000),
+        }
+    except Exception as e:
+        logger.exception("Execution status failed")
+        return {"status": "error", "message": str(e)}
+
+
 # ── Background tasks ─────────────────────────────────────────────
 
 async def _execute_recommendation(job_id: str, req: ScoreRequest) -> None:
@@ -523,3 +815,235 @@ async def _execute_data_update(job_id: str, req: DataUpdateRequest) -> None:
     except Exception as e:
         _JOBS[job_id].update({"status": "failed", "result": {"error": str(e)}})
         logger.exception("Data update %s failed", job_id)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Bank Analyzer Routes — 银行信用卡业务合作潜力分析
+# ═══════════════════════════════════════════════════════════════════
+
+
+@app.get("/bank/ranking")
+async def get_bank_ranking(top: int | None = None) -> dict[str, Any]:
+    """返回银行合作潜力排名.
+
+    Query params:
+        top: 返回前 N 名 (默认返回全部 18 家)
+    """
+    try:
+        from bank_analyzer.bank_data import BankDataPipeline
+        from bank_analyzer.bank_scorer import BankScorer
+
+        pipeline = BankDataPipeline(_CONFIG)
+        df = pipeline.run()
+
+        scorer = BankScorer(_CONFIG)
+        bank_cfg = _CONFIG.get("bank_analyzer", {})
+        model_path = bank_cfg.get("model_path", "models/bank_scorer")
+        try:
+            scorer.load(model_path)
+        except Exception:
+            scorer.fit(df)
+
+        all_scores = scorer.score_all(df)
+        if top:
+            all_scores = all_scores[:top]
+
+        return {
+            "status": "ok",
+            "date": str(date.today()),
+            "total": len(all_scores),
+            "ranking": [
+                {
+                    "rank": s.rank,
+                    "bank_id": s.bank_id,
+                    "bank_name": s.bank_name,
+                    "bank_type": s.bank_type,
+                    "module_a_total": round(s.module_a_total, 1),
+                    "module_b_total": round(s.module_b_total, 1),
+                    "module_c_total": round(s.module_c_total, 1),
+                    "module_d_total": round(s.module_d_total, 1),
+                    "cooperation_potential": round(s.cooperation_potential, 1),
+                    "ml_signal": s.ml_signal,
+                    "recommendation": s.recommendation,
+                    "risk_warning": s.risk_warning,
+                }
+                for s in all_scores
+            ],
+        }
+    except Exception as e:
+        logger.exception("Bank ranking failed")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/bank/{bank_id}")
+async def get_bank_detail(bank_id: str) -> dict[str, Any]:
+    """获取单个银行的详细分析.
+
+    Path params:
+        bank_id: 银行 ID，如 CMB, ICBC, CCB
+    """
+    try:
+        from bank_analyzer.bank_data import BankDataCollector, BANK_UNIVERSE
+        from bank_analyzer.bank_scorer import BankScorer
+        from bank_analyzer.bank_pain_points import BankPainPointAnalyzer
+
+        if bank_id.upper() not in BANK_UNIVERSE:
+            return {"status": "not_found", "bank_id": bank_id, "supported": list(BANK_UNIVERSE.keys())}
+
+        # 数据采集
+        collector = BankDataCollector(_CONFIG)
+        profile = collector.collect_one(bank_id.upper())
+
+        # 评分
+        scorer = BankScorer(_CONFIG)
+        pipeline = __import__("bank_analyzer.bank_data", fromlist=["BankDataPipeline"]).BankDataPipeline(_CONFIG)
+        df = pipeline.run([bank_id.upper()])
+        bank_cfg = _CONFIG.get("bank_analyzer", {})
+        model_path = bank_cfg.get("model_path", "models/bank_scorer")
+        try:
+            scorer.load(model_path)
+        except Exception:
+            scorer.fit(df)
+        scores = scorer.score_all(df)
+
+        # 痛点分析
+        analyzer = BankPainPointAnalyzer(_CONFIG)
+        pain = analyzer.analyze_one(
+            bank_name=profile.name,
+            bank_type=profile.bank_type,
+            profile_text=analyzer._profile_to_text(profile),
+        )
+
+        return {
+            "status": "ok",
+            "bank_id": bank_id.upper(),
+            "profile": {
+                "name": profile.name,
+                "bank_type": profile.bank_type,
+                "aum_rank": profile.aum_rank,
+                "total_assets": profile.total_assets,
+                "revenue": profile.revenue,
+                "net_profit": profile.net_profit,
+                "roe": profile.roe,
+                "car": profile.car,
+                "npl_ratio": profile.npl_ratio,
+                "credit_card_volume": profile.credit_card_volume,
+                "credit_card_active_users": profile.credit_card_active_users,
+                "credit_card_transaction": profile.credit_card_transaction,
+                "credit_card_revenue": profile.credit_card_revenue,
+                "mobile_bank_users": profile.mobile_bank_users,
+                "digital_transaction_ratio": profile.digital_transaction_ratio,
+                "fintech_investment": profile.fintech_investment,
+                "market_share_pct": profile.market_share_pct,
+                "yoy_growth_pct": profile.yoy_growth_pct,
+                "data_source": profile.data_source,
+            },
+            "score": {
+                "cooperation_potential": round(scores[0].cooperation_potential, 1) if scores else 0,
+                "recommendation": scores[0].recommendation if scores else "N/A",
+            } if scores else {},
+            "pain_point_analysis": {
+                "strategic_focus": pain.strategic_focus,
+                "business_pain_points": pain.business_pain_points,
+                "cooperation_opportunities": pain.cooperation_opportunities,
+                "risk_assessment": pain.risk_assessment,
+                "summary": pain.summary,
+            },
+        }
+    except Exception as e:
+        logger.exception("Bank detail failed for %s", bank_id)
+        return {"status": "error", "bank_id": bank_id, "message": str(e)}
+
+
+@app.post("/bank/analyze")
+async def analyze_banks(req: ScoreRequest, bg: BackgroundTasks) -> dict[str, str]:
+    """触发完整的银行分析管线（异步执行）.
+
+    Body:
+        tickers: 指定银行 ID 列表，可选（默认全部）
+        date: 分析日期，可选
+    """
+    job_id = str(uuid.uuid4())[:8]
+    _JOBS[job_id] = {"status": "pending", "created_at": datetime.now().isoformat(), "result": None}
+    bg.add_task(_execute_bank_analysis, job_id, req)
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/bank/report", response_class=HTMLResponse)
+async def get_bank_report() -> HTMLResponse:
+    """返回最新的银行分析 HTML 报告."""
+    from pathlib import Path
+    bank_cfg = _CONFIG.get("bank_analyzer", {})
+    report_dir = Path(bank_cfg.get("report_output_dir", "./reports/bank"))
+    if not report_dir.exists():
+        raise HTTPException(404, "No bank report found. Run POST /bank/analyze first.")
+    reports = sorted(report_dir.glob("bank_analysis_*.html"), reverse=True)
+    if not reports:
+        raise HTTPException(404, "No bank report found. Run POST /bank/analyze first.")
+    return HTMLResponse(reports[0].read_text(encoding="utf-8"))
+
+
+async def _execute_bank_analysis(job_id: str, req: ScoreRequest) -> None:
+    """后台执行完整银行分析管线."""
+    try:
+        _JOBS[job_id]["status"] = "running"
+
+        from bank_analyzer.bank_data import BankDataPipeline, BANK_UNIVERSE
+        from bank_analyzer.bank_scorer import BankScorer
+        from bank_analyzer.bank_pain_points import BankPainPointAnalyzer
+        from bank_analyzer.bank_report import BankReportRenderer
+
+        bank_cfg = _CONFIG.get("bank_analyzer", {})
+        bank_ids = req.tickers if req.tickers else bank_cfg.get("monitored_banks", list(BANK_UNIVERSE.keys()))
+
+        # 1. 数据管线
+        pipeline = BankDataPipeline(_CONFIG)
+        df = pipeline.run(bank_ids)
+
+        # 2. 评分
+        scorer = BankScorer(_CONFIG)
+        model_path = bank_cfg.get("model_path", "models/bank_scorer")
+        try:
+            scorer.load(model_path)
+        except Exception:
+            scorer.fit(df)
+            scorer.save(model_path)
+
+        scores = scorer.score_all(df)
+
+        # 3. 痛点分析
+        analyzer = BankPainPointAnalyzer(_CONFIG)
+        profiles = pipeline._collector.collect_all_profiles(bank_ids)
+        pain_points = analyzer.analyze_all(profiles)
+
+        # 4. 生成报告
+        from scripts.analyze_banks import build_chart_data
+        chart_data = build_chart_data(scores)
+
+        summary_parts = [f"【{pp.bank_name}】{pp.summary}" for pp in pain_points[:3]]
+        summary_text = "\n\n".join(summary_parts)
+
+        renderer = BankReportRenderer()
+        output_dir = bank_cfg.get("report_output_dir", "./reports/bank")
+        output_path = f"{output_dir}/bank_analysis_{date.today().isoformat()}.html"
+        renderer.render_to_file(
+            output_path=output_path,
+            scores=[s.__dict__ for s in scores],
+            pain_points=[pp.__dict__ for pp in pain_points],
+            chart_data=chart_data,
+            summary_text=summary_text,
+        )
+
+        _JOBS[job_id].update({
+            "status": "completed",
+            "result": {
+                "total_banks": len(scores),
+                "top_3": [s.bank_name for s in scores[:3]],
+                "recommend_count": sum(1 for s in scores if s.cooperation_potential >= 65),
+                "report_path": output_path,
+            },
+        })
+        logger.info("Bank analysis %s completed — %d banks", job_id, len(scores))
+    except Exception as e:
+        _JOBS[job_id].update({"status": "failed", "result": {"error": str(e)}})
+        logger.exception("Bank analysis %s failed", job_id)

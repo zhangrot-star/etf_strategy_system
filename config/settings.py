@@ -92,6 +92,19 @@ class Settings(BaseSettings):
     # ── Report ────────────────────────────────────────────────
     report_output_dir: str = "./reports"
 
+    # ── Bank Analyzer ──────────────────────────────────────────
+    bank_analyzer_enabled: bool = True
+    bank_analyzer_use_synthetic: bool = True
+    bank_analyzer_model_path: str = "models/bank_scorer"
+    bank_analyzer_report_dir: str = "./reports/bank"
+    bank_scoring_scale_weight: float = 0.25
+    bank_scoring_card_quality_weight: float = 0.30
+    bank_scoring_digital_weight: float = 0.25
+    bank_scoring_stability_weight: float = 0.20
+    bank_pain_point_llm_provider: str = "deepseek"
+    bank_pain_point_llm_model: str = "deepseek-v4-pro"
+    bank_pain_point_use_template_fallback: bool = True
+
     # ── Paths ─────────────────────────────────────────────────
     @property
     def project_root(self) -> Path:

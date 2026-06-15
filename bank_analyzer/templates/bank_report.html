@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>银行信用卡业务合作潜力分析报告</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root {
+    --primary: #1a3a5c; --accent: #c9a96e; --bg: #f8f6f2;
+    --card-bg: #ffffff; --text: #2c2c2c; --muted: #6b6b6b;
+    --border: #e0dcd0; --good: #2d6a4f; --warn: #b8860b; --bad: #c0392b;
+    --rank-1: #c9a96e; --rank-2: #a0a0a0; --rank-3: #cd7f32;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+  /* Header */
+  .header { background: linear-gradient(135deg, var(--primary) 0%, #2c5282 100%); color: #fff; padding: 40px 50px; border-radius: 8px; margin-bottom: 30px; position: relative; overflow: hidden; }
+  .header::after { content: ''; position: absolute; top: -50%; right: -10%; width: 400px; height: 400px; background: rgba(201,169,110,0.08); border-radius: 50%; }
+  .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; position: relative; z-index: 1; }
+  .header .subtitle { font-size: 14px; opacity: 0.85; position: relative; z-index: 1; }
+  .header .meta { margin-top: 12px; font-size: 13px; opacity: 0.7; position: relative; z-index: 1; }
+
+  /* Summary Cards */
+  .summary-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 30px; }
+  .summary-card { background: var(--card-bg); border-radius: 8px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); text-align: center; border: 1px solid var(--border); }
+  .summary-card .value { font-size: 32px; font-weight: 700; color: var(--primary); }
+  .summary-card .label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* Section */
+  .section { background: var(--card-bg); border-radius: 8px; padding: 30px; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border: 1px solid var(--border); }
+  .section h2 { font-size: 20px; color: var(--primary); margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--accent); display: flex; align-items: center; gap: 8px; }
+  .section h3 { font-size: 16px; color: var(--primary); margin: 16px 0 12px; }
+
+  /* Top 3 */
+  .top3-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
+  .top-bank { background: var(--card-bg); border-radius: 10px; padding: 24px; text-align: center; border: 2px solid var(--border); position: relative; }
+  .top-bank.rank-1 { border-color: var(--rank-1); box-shadow: 0 4px 20px rgba(201,169,110,0.2); }
+  .top-bank.rank-2 { border-color: var(--rank-2); }
+  .top-bank.rank-3 { border-color: var(--rank-3); }
+  .top-bank .rank-badge { display: inline-block; padding: 4px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; margin-bottom: 12px; }
+  .rank-1 .rank-badge { background: var(--rank-1); color: #fff; }
+  .rank-2 .rank-badge { background: var(--rank-2); color: #fff; }
+  .rank-3 .rank-badge { background: var(--rank-3); color: #fff; }
+  .top-bank .bank-name { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .top-bank .score { font-size: 42px; font-weight: 700; color: var(--primary); }
+  .top-bank .score-label { font-size: 12px; color: var(--muted); }
+
+  /* Charts */
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .chart-box { height: 380px; }
+  .chart-full { height: 420px; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  thead th { background: var(--primary); color: #fff; padding: 12px 14px; text-align: left; font-weight: 600; position: sticky; top: 0; }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  tbody tr:hover { background: #faf8f4; }
+  .table-wrap { max-height: 600px; overflow-y: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .badge-priority { background: #d4edda; color: #155724; }
+  .badge-recommend { background: #cce5ff; color: #004085; }
+  .badge-consider { background: #fff3cd; color: #856404; }
+  .badge-wait { background: #f8d7da; color: #721c24; }
+  .badge-low { background: #d4edda; color: #155724; }
+  .badge-medium { background: #fff3cd; color: #856404; }
+  .badge-high { background: #f8d7da; color: #721c24; }
+
+  /* Pain Points */
+  .pain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .pain-card { border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+  .pain-card h4 { color: var(--primary); margin-bottom: 10px; }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .tag { padding: 3px 10px; border-radius: 14px; font-size: 12px; background: #e8f0fe; color: #1a3a5c; }
+  .opp-item { padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .opp-item:last-child { border-bottom: none; }
+
+  .footer { text-align: center; padding: 20px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <h1>🏦 银行信用卡业务合作潜力分析报告</h1>
+  <div class="subtitle">Bank Credit Card Business Cooperation Potential Analysis</div>
+  <div class="meta">报告日期：{{ report_date }} &nbsp;|&nbsp; 覆盖银行：{{ total_banks }} 家 &nbsp;|&nbsp; AI 增强分析</div>
+</div>
+
+<!-- Summary -->
+<div class="summary-row">
+  <div class="summary-card"><div class="value">{{ total_banks }}</div><div class="label">覆盖银行总数</div></div>
+  <div class="summary-card"><div class="value">{{ recommend_count }}</div><div class="label">推荐/优先合作</div></div>
+  <div class="summary-card"><div class="value">{{ top_3[0].bank_name if top_3 else 'N/A' }}</div><div class="label">🏆 最佳合作银行</div></div>
+  <div class="summary-card"><div class="value">{{ "%.0f" % (top_3[0].cooperation_potential) if top_3 else 'N/A' }}</div><div class="label">最高合作潜力分</div></div>
+</div>
+
+<!-- Top 3 -->
+{% if top_3 %}
+<div class="top3-grid">
+  {% for bank in top_3 %}
+  <div class="top-bank rank-{{ loop.index }}">
+    <div class="rank-badge">🏆 第 {{ loop.index }} 名</div>
+    <div class="bank-name">{{ bank.bank_name }}</div>
+    <div class="score">{{ "%.1f" % bank.cooperation_potential }}</div>
+    <div class="score-label">合作潜力分 / 100</div>
+    <div style="margin-top:10px;">
+      <span class="badge badge-priority">{{ bank.recommendation }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Charts -->
+<div class="section">
+  <h2>📊 合作潜力排名 & 多维度对比</h2>
+  <div class="chart-row">
+    <div class="chart-box" id="chart-ranking"></div>
+    <div class="chart-box" id="chart-radar"></div>
+  </div>
+  <div class="chart-full" id="chart-heatmap"></div>
+</div>
+
+<!-- Full Ranking Table -->
+<div class="section">
+  <h2>📋 18 家银行完整评分排名</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>排名</th><th>银行名称</th><th>类型</th>
+          <th>规模分(A)</th><th>信用卡(B)</th><th>数字化(C)</th><th>稳定性(D)</th>
+          <th>合作潜力分</th><th>信号</th><th>推荐等级</th><th>风险提示</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in scores %}
+        <tr>
+          <td><strong>{{ s.rank }}</strong></td>
+          <td>{{ s.bank_name }}</td>
+          <td>{{ s.bank_type }}</td>
+          <td>{{ "%.1f" % s.module_a_total }}</td>
+          <td>{{ "%.1f" % s.module_b_total }}</td>
+          <td>{{ "%.1f" % s.module_c_total }}</td>
+          <td>{{ "%.1f" % s.module_d_total }}</td>
+          <td><strong>{{ "%.1f" % s.cooperation_potential }}</strong></td>
+          <td><span class="badge {% if s.ml_signal == 'STRONG_BUY' %}badge-priority{% elif s.ml_signal == 'BUY' %}badge-recommend{% elif s.ml_signal == 'NEUTRAL' %}badge-consider{% else %}badge-wait{% endif %}">{{ s.ml_signal }}</span></td>
+          <td><span class="badge {% if s.recommendation == '优先合作' %}badge-priority{% elif s.recommendation == '推荐' %}badge-recommend{% elif s.recommendation == '可考虑' %}badge-consider{% else %}badge-wait{% endif %}">{{ s.recommendation }}</span></td>
+          <td style="font-size:12px;color:var(--muted)">{{ s.risk_warning }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- AI Pain Point Analysis -->
+<div class="section">
+  <h2>🤖 AI 银行痛点与合作机会分析</h2>
+  <p style="color:var(--muted);margin-bottom:16px;">基于大模型驱动的银行年报、新闻、行业报告自动分析，提取战略重点、业务痛点和合作切入点</p>
+
+  <div class="pain-grid">
+    {% for pp in pain_points %}
+    <div class="pain-card">
+      <h4>{{ pp.bank_name }}</h4>
+
+      {% if pp.strategic_focus %}
+      <div style="margin-bottom:8px;"><strong>🎯 战略重点</strong></div>
+      <div class="tag-list">
+        {% for focus in pp.strategic_focus %}<span class="tag">{{ focus }}</span>{% endfor %}
+      </div>
+      {% endif %}
+
+      {% if pp.business_pain_points %}
+      <div style="margin-bottom:8px;"><strong>⚠️ 业务痛点</strong></div>
+      <div class="tag-list">
+        {% for pain in pp.business_pain_points %}<span class="tag" style="background:#fff3cd;color:#856404;">{{ pain }}</span>{% endfor %}
+      </div>
+      {% endif %}
+
+      {% if pp.cooperation_opportunities %}
+      <div style="margin-bottom:8px;"><strong>💡 合作切入点</strong></div>
+      {% for opp in pp.cooperation_opportunities[:3] %}
+      <div class="opp-item">
+        <span style="font-weight:600;">{{ opp.angle }}</span>
+        <span class="badge {% if opp.priority == 'high' %}badge-high{% elif opp.priority == 'medium' %}badge-medium{% else %}badge-low{% endif %}" style="font-size:10px;float:right;">{{ opp.priority }}</span>
+        <div style="font-size:12px;color:var(--muted);">{{ opp.value_proposition }} · 预估 {{ opp.estimated_revenue }} 万元/年</div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      {% if pp.risk_assessment %}
+      <div style="margin-top:10px;font-size:12px;">
+        <span class="badge {% if pp.risk_assessment.overall_risk == 'low' %}badge-low{% elif pp.risk_assessment.overall_risk == 'medium' %}badge-medium{% else %}badge-high{% endif %}">风险: {{ pp.risk_assessment.overall_risk }}</span>
+        {% if pp.risk_assessment.mitigation %}
+        <span style="color:var(--muted);margin-left:8px;">{{ pp.risk_assessment.mitigation }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- AI Summary -->
+{% if summary_text %}
+<div class="section">
+  <h2>📝 AI 综合分析摘要</h2>
+  <p style="white-space:pre-wrap;line-height:1.8;">{{ summary_text }}</p>
+</div>
+{% endif %}
+
+<div class="footer">
+  本报告由 AI 增强分析系统自动生成 · 数据来源包含公开财报、行业报告及AI推测 · 仅供商务决策参考<br>
+  © {{ report_date[:4] }} Bank Business Development AI Assistant · All Rights Reserved
+</div>
+
+</div><!-- /.container -->
+
+<script>
+const chartData = JSON.parse('{{ chart_data_json | safe }}');
+
+// 1. Ranking Bar Chart
+(function() {
+  const dom = document.getElementById('chart-ranking');
+  if (!dom) return;
+  const c = echarts.init(dom);
+  const banks = chartData.bank_names || [];
+  const scores = chartData.cooperation_scores || [];
+  c.setOption({
+    title: { text: '合作潜力排名', left: 'center', textStyle: { fontSize: 14, color: '#1a3a5c' } },
+    tooltip: { trigger: 'axis' },
+    grid: { left: 100, right: 40, top: 40, bottom: 20 },
+    xAxis: { type: 'value', name: '合作潜力分', max: 100 },
+    yAxis: { type: 'category', data: banks.slice(0,12).reverse(), inverse: true,
+             axisLabel: { fontSize: 11 } },
+    series: [{
+      type: 'bar', data: scores.slice(0,12).reverse(),
+      itemStyle: { color: function(p) {
+        const colors = ['#c9a96e', '#a0a0a0', '#cd7f32'];
+        return colors[p.dataIndex % 3] || '#1a3a5c';
+      }},
+      label: { show: true, position: 'right', formatter: '{c}' }
+    }]
+  });
+  c.resize();
+})();
+
+// 2. Radar Chart — Top 6
+(function() {
+  const dom = document.getElementById('chart-radar');
+  if (!dom) return;
+  const c = echarts.init(dom);
+  c.setOption({
+    title: { text: 'Top 6 多维度雷达图', left: 'center', textStyle: { fontSize: 14, color: '#1a3a5c' } },
+    legend: { bottom: 0, data: (chartData.radar_banks || []).slice(0,6) },
+    radar: {
+      indicator: [
+        { name: '规模', max: 25 }, { name: '信用卡', max: 30 },
+        { name: '数字化', max: 25 }, { name: '稳定性', max: 20 }
+      ],
+      radius: '60%',
+    },
+    series: [{
+      type: 'radar',
+      data: (chartData.radar_data || []).slice(0,6).map(function(d, i) {
+        return { value: d, name: (chartData.radar_banks || [])[i] };
+      })
+    }]
+  });
+  c.resize();
+})();
+
+// 3. Module Score Heatmap
+(function() {
+  const dom = document.getElementById('chart-heatmap');
+  if (!dom) return;
+  const c = echarts.init(dom);
+  // Build heatmap data
+  const hmBanks = chartData.heatmap_banks || [];
+  const hmModules = ['规模', '信用卡', '数字化', '稳定性'];
+  const hmData = [];
+  (chartData.heatmap_data || []).forEach(function(row, i) {
+    row.forEach(function(val, j) {
+      hmData.push([j, i, val]);
+    });
+  });
+  c.setOption({
+    title: { text: '评分热力图', left: 'center', textStyle: { fontSize: 14, color: '#1a3a5c' } },
+    tooltip: { formatter: function(p) { return hmBanks[p.value[1]] + '<br/>' + hmModules[p.value[0]] + ': ' + p.value[2].toFixed(1); }},
+    grid: { left: 80, right: 20, top: 40, bottom: 40 },
+    xAxis: { type: 'category', data: hmModules, splitArea: { show: true } },
+    yAxis: { type: 'category', data: hmBanks, splitArea: { show: true } },
+    visualMap: { min: 0, max: 30, calculable: true, orient: 'horizontal', left: 'center', bottom: 0,
+                 inRange: { color: ['#f8f6f2', '#c9a96e', '#1a3a5c'] } },
+    series: [{ type: 'heatmap', data: hmData, label: { show: true, fontSize: 10 } }]
+  });
+  c.resize();
+})();
+</script>
+</body>
+</html>
